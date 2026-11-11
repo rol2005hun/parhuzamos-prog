@@ -1,0 +1,58 @@
+#version 430 core
+// Median filter compute shader
+// Sorts the kernel elements per channel and stores the median
+// Max kernel: 9x9 = 81 elements
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(rgba32f, binding = 0) uniform image2D imgInput;
+layout(rgba32f, binding = 1) uniform image2D imgOutput;
+
+uniform int u_kernelSize;  // 3, 5, 7, 9
+
+// Insertion sort (ideal for small arrays)
+void sortArr(inout float arr[81], int n) {
+    for (int i = 1; i < n; ++i) {
+        float key = arr[i];
+        int j = i - 1;
+        while (j >= 0 && arr[j] > key) {
+            arr[j + 1] = arr[j];
+            j--;
+        }
+        arr[j + 1] = key;
+    }
+}
+
+void main() {
+    ivec2 coord   = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 imgSize = imageSize(imgInput);
+    if (coord.x >= imgSize.x || coord.y >= imgSize.y) return;
+
+    int halfK = u_kernelSize / 2;
+    int n    = u_kernelSize * u_kernelSize;
+
+    float bufR[81], bufG[81], bufB[81];
+    int idx = 0;
+
+    for (int ky = -halfK; ky <= halfK; ++ky) {
+        for (int kx = -halfK; kx <= halfK; ++kx) {
+            ivec2 sc = clamp(coord + ivec2(kx, ky), ivec2(0), imgSize - ivec2(1));
+            vec4 p = imageLoad(imgInput, sc);
+            bufR[idx] = p.r;
+            bufG[idx] = p.g;
+            bufB[idx] = p.b;
+            idx++;
+        }
+    }
+
+    sortArr(bufR, n);
+    sortArr(bufG, n);
+    sortArr(bufB, n);
+
+    vec4 result;
+    result.r = bufR[n / 2];
+    result.g = bufG[n / 2];
+    result.b = bufB[n / 2];
+    result.a = imageLoad(imgInput, coord).a;
+
+    imageStore(imgOutput, coord, result);
+}

@@ -1,0 +1,96 @@
+#version 430 core
+// Mandelbrot / Julia set compute shader (64-bit DOUBLE precision)
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(rgba8, binding = 0) uniform image2D u_output;
+
+uniform vec2  u_resolution;
+uniform dvec2 u_center;
+uniform double u_zoom;
+uniform int   u_maxIter;
+uniform int   u_colorLUT;   // 0=Smooth, 1=Fire, 2=Ice, 3=Neon, 4=Grayscale
+uniform int   u_julia;
+uniform dvec2 u_juliaC;
+
+vec3 paletteSmooth(float t) {
+    return 0.5 + 0.5 * cos(6.28318 * (vec3(0.0, 0.1, 0.2) + t * vec3(1.0, 1.0, 1.0)));
+}
+
+vec3 paletteFire(float t) {
+    vec3 a = vec3(0.5, 0.0, 0.0);
+    vec3 b = vec3(0.5, 0.3, 0.0);
+    vec3 c = vec3(1.0, 1.0, 0.5);
+    vec3 d = vec3(0.0, 0.15, 0.2);
+    return a + b * cos(6.28318 * (c * t + d));
+}
+
+vec3 paletteIce(float t) {
+    vec3 a = vec3(0.5, 0.5, 0.5);
+    vec3 b = vec3(0.5, 0.5, 0.5);
+    vec3 c = vec3(1.0, 1.0, 1.0);
+    vec3 d = vec3(0.3, 0.2, 0.2);
+    return a + b * cos(6.28318 * (c * t + d));
+}
+
+vec3 paletteNeon(float t) {
+    vec3 a = vec3(0.2, 0.1, 0.4);
+    vec3 b = vec3(0.8, 0.9, 0.6);
+    vec3 c = vec3(2.0, 1.0, 1.0);
+    vec3 d = vec3(0.0, 0.25, 0.5);
+    return a + b * cos(6.28318 * (c * t + d));
+}
+
+vec3 colorize(float t, int maxIt) {
+    if (u_colorLUT == 4) return vec3(t / float(maxIt));
+    float nt = t / float(maxIt);
+    if (u_colorLUT == 1) return paletteFire(nt);
+    if (u_colorLUT == 2) return paletteIce(nt);
+    if (u_colorLUT == 3) return paletteNeon(nt);
+    return paletteSmooth(nt);
+}
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 res   = ivec2(u_resolution);
+    if (coord.x >= res.x || coord.y >= res.y) return;
+
+    // Pixel -> complex number (double precision)
+    double aspect = double(u_resolution.x) / double(u_resolution.y);
+    double re = u_center.x + (double(coord.x) / double(u_resolution.x) - 0.5) * 2.0 * u_zoom * aspect;
+    double im = u_center.y - (double(coord.y) / double(u_resolution.y) - 0.5) * 2.0 * u_zoom;
+
+    double cr, ci;
+    double zr, zi;
+
+    if (u_julia == 1) {
+        // Julia: c is fixed, z = pixel
+        cr = u_juliaC.x; ci = u_juliaC.y;
+        zr = re;         zi = im;
+    } else {
+        // Mandelbrot: z = 0, c = pixel
+        cr = re; ci = im;
+        zr = 0.0; zi = 0.0;
+    }
+
+    int iter = 0;
+    double zr2 = zr * zr, zi2 = zi * zi;
+
+    for (; iter < u_maxIter && zr2 + zi2 < 4.0; ++iter) {
+        zi  = 2.0 * zr * zi + ci;
+        zr  = zr2 - zi2 + cr;
+        zr2 = zr * zr;
+        zi2 = zi * zi;
+    }
+
+    vec3 col;
+    if (iter == u_maxIter) {
+        col = vec3(0.0); // inside the set -> black
+    } else {
+        // Smooth coloring: log-log escape
+        float log_zn  = log(float(zr2 + zi2)) * 0.5;
+        float nu      = log(log_zn / log(2.0)) / log(2.0);
+        float smoothIt = float(iter) + 1.0 - nu;
+        col = colorize(smoothIt, u_maxIter);
+    }
+
+    imageStore(u_output, coord, vec4(col, 1.0));
+}

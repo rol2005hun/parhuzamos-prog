@@ -1,0 +1,45 @@
+#version 430 core
+// Gauss blur compute shader - separable, 2 passes needed (horizontal + vertical)
+// Pass 0 (horizontal=1): Blur in X direction
+// Pass 1 (horizontal=0): Blur in Y direction
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(rgba32f, binding = 0) uniform image2D imgInput;
+layout(rgba32f, binding = 1) uniform image2D imgOutput;
+
+uniform int   u_kernelSize;  // 3, 5, 7, 9
+uniform int   u_horizontal;  // 1 = horizontal pass, 0 = vertical
+
+// Pre-calculated Gauss weights (max 9x1)
+float gaussWeight(int i, int size) {
+    float sigma = float(size) / 6.0;
+    float x = float(i - size / 2);
+    return exp(-(x * x) / (2.0 * sigma * sigma));
+}
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 imgSize = imageSize(imgInput);
+    if (coord.x >= imgSize.x || coord.y >= imgSize.y) return;
+
+    int halfK = u_kernelSize / 2;
+    float weightSum = 0.0;
+    vec4 color = vec4(0.0);
+
+    for (int k = 0; k < u_kernelSize; ++k) {
+        float w = gaussWeight(k, u_kernelSize);
+        weightSum += w;
+
+        ivec2 sampleCoord;
+        if (u_horizontal == 1)
+            sampleCoord = ivec2(clamp(coord.x + k - halfK, 0, imgSize.x - 1), coord.y);
+        else
+            sampleCoord = ivec2(coord.x, clamp(coord.y + k - halfK, 0, imgSize.y - 1));
+
+        color += imageLoad(imgInput, sampleCoord) * w;
+    }
+
+    color /= weightSum;
+    color.a = imageLoad(imgInput, coord).a; // keep alpha
+    imageStore(imgOutput, coord, color);
+}

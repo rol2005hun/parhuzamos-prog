@@ -1,0 +1,30 @@
+#version 430 core
+// Unsharp masking compute shader
+// out = src + amount * (src - blur(src))
+// Input: binding=0 = original image, binding=1 = blurred image
+// Output: binding=2 = sharpened image
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(rgba32f, binding = 0) uniform image2D imgOriginal;
+layout(rgba32f, binding = 1) uniform image2D imgBlurred;
+layout(rgba32f, binding = 2) uniform image2D imgOutput;
+
+uniform float u_amount;  // typically 1.0 - 2.0
+
+void main() {
+    ivec2 coord   = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 imgSize = imageSize(imgOriginal);
+    if (coord.x >= imgSize.x || coord.y >= imgSize.y) return;
+
+    vec4 orig = imageLoad(imgOriginal, coord);
+    vec4 blur = imageLoad(imgBlurred,  coord);
+
+    // High-frequency component
+    vec4 edge = orig - blur;
+
+    vec4 result;
+    result.rgb = clamp(orig.rgb + u_amount * edge.rgb, 0.0, 1.0);
+    result.a   = orig.a;
+
+    imageStore(imgOutput, coord, result);
+}

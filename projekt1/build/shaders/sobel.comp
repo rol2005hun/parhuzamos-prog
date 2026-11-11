@@ -1,0 +1,38 @@
+#version 430 core
+// Sobel edge detection compute shader
+// Gradient magnitude: sqrt(Gx^2 + Gy^2) per channel
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(rgba32f, binding = 0) uniform image2D imgInput;
+layout(rgba32f, binding = 1) uniform image2D imgOutput;
+
+vec4 load(ivec2 coord, ivec2 size) {
+    coord = clamp(coord, ivec2(0), size - ivec2(1));
+    return imageLoad(imgInput, coord);
+}
+
+void main() {
+    ivec2 coord   = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 imgSize = imageSize(imgInput);
+    if (coord.x >= imgSize.x || coord.y >= imgSize.y) return;
+
+    // Load neighbor pixels
+    vec4 tl = load(coord + ivec2(-1,-1), imgSize);
+    vec4 tc = load(coord + ivec2( 0,-1), imgSize);
+    vec4 tr = load(coord + ivec2( 1,-1), imgSize);
+    vec4 ml = load(coord + ivec2(-1, 0), imgSize);
+    vec4 mr = load(coord + ivec2( 1, 0), imgSize);
+    vec4 bl = load(coord + ivec2(-1, 1), imgSize);
+    vec4 bc = load(coord + ivec2( 0, 1), imgSize);
+    vec4 br = load(coord + ivec2( 1, 1), imgSize);
+
+    // Sobel Gx, Gy
+    vec4 gx = -tl + tr - 2.0*ml + 2.0*mr - bl + br;
+    vec4 gy = -tl - 2.0*tc - tr + bl + 2.0*bc + br;
+
+    vec4 mag = sqrt(gx*gx + gy*gy);
+    mag = clamp(mag, 0.0, 1.0);
+    mag.a = imageLoad(imgInput, coord).a;
+
+    imageStore(imgOutput, coord, mag);
+}
